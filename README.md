@@ -1,73 +1,93 @@
-# API TVA Meridian
+# 🇪🇺 API TVA Meridian - Guide de Déploiement et de Test
 
-Service de nettoyage, validation et consultation de numéros de TVA Intracommunautaires pour la société Meridian Distribution.
+Service complet de nettoyage, validation et consultation de numéros de TVA Intracommunautaires.
 
 **Auteur:** Jean-Thomas Miquelot / Assistant IA
 
-## Description
-Ce projet répond au besoin de Meridian Distribution de valider une base de 10 000 numéros de TVA clients, dans un contexte d'autoliquidation de la TVA à l'international. 
-Il propose un pipeline de données complet :
-1. **Import et normalisation** des numéros bruts depuis un fichier d'origine.
-2. **Filtrage structurel** sans appel réseau, pour écarter rapidement les erreurs de format (et corriger automatiquement les bruits de saisie basiques).
-3. **Campagne de validation en ligne (VIES)** en mode différé, hautement tolérante aux interruptions.
-4. **Exposition via API REST**, pour permettre au service de facturation de vérifier un numéro en temps réel avant d'émettre une facture HT.
+---
 
-## Technologies & Justification
-- **Python 3.12+** & **uv** : Écosystème rapide et moderne.
-- **FastAPI** : Choix idéal pour construire l'API REST : rapide, typé statiquement via Pydantic, et générant automatiquement la documentation OpenAPI.
-- **PostgreSQL** : Base de données robuste pour stocker l'historique et les différents états des verdicts (brut, structurel, en ligne).
-- **SQLAlchemy** : ORM standard facilitant les interactions avec PostgreSQL.
-- **pandas** : Simplifie la manipulation et le nettoyage initial du fichier source (CSV/Excel).
-- **python-stdnum** : Bibliothèque robuste pour la validation structurelle et la clé de contrôle des numéros de TVA (pour éviter de réécrire les regex des 27 pays de l'UE).
-- **httpx** : Client HTTP moderne pour effectuer les appels vers l'API REST VIES.
+## 🛠️ Prérequis
+- `uv` installé (gestionnaire de paquets Python ultra-rapide)
+- Docker & Docker Compose installés (pour la base de données PostgreSQL)
+- Ports `5435` (PostgreSQL) et `8000` (API) libres sur votre machine.
 
-## Lancement depuis zéro
+---
 
-### 1. Prérequis
-- Python 3.12+ (ou l'outil `uv` installé)
-- Docker & Docker Compose
-- Le port `5435` disponible pour PostgreSQL et le port `8000` pour l'API.
+## 🚀 1. Lancement depuis zéro (Installation)
 
-### 2. Démarrage de la base de données
+**1. Démarrer la base de données PostgreSQL via Docker :**
 ```bash
 docker compose up -d
 ```
 
-### 3. Installation et initialisation
-Exécutez ce qui suit pour préparer l'environnement et construire les tables :
+**2. Synchroniser l'environnement et initialiser les tables de la base :**
 ```bash
 uv sync
 uv run python -m src.api_tva_meridian.init_db
 ```
 
-### 4. Chargement et Normalisation (Phase 1)
-Chargez les données du fichier dans la base. Cette étape effectue également la validation structurelle.
+*(La base de données est maintenant prête, vide, avec son schéma construit).*
+
+---
+
+## 🧪 2. Tester le Pipeline (Étape par Étape)
+
+### Étape A : Chargement et Normalisation (Phase 1)
+Nous allons ingérer les 10 000 lignes brutes du fichier CSV, les nettoyer, et appliquer la validation structurelle de base sans faire d'appel réseau.
 ```bash
 uv run python -m src.api_tva_meridian.load numeros_tva.csv
 ```
+*(Remarque : L'opération est idempotente. Si vous la relancez, elle ne créera pas de doublons).*
 
-### 5. Campagne de vérification VIES (Phase 2)
-Vous pouvez lancer une campagne sur un échantillon pour vérifier les appels VIES (avec temporisation).
+### Étape B : Campagne de vérification VIES (Phase 2)
+Nous allons maintenant vérifier un échantillon de ces numéros auprès du service européen officiel VIES.
 ```bash
-# Vérifier 200 numéros, avec 1 seconde d'écart
-uv run python -m src.api_tva_meridian.check_campaign --sample 200 --delay 1.0
+# Vérifie un échantillon de 10 numéros avec un délai de 0.5 secondes entre chaque appel
+uv run python -m src.api_tva_meridian.check_campaign --sample 10 --delay 0.5
 ```
-*Le script est interruptible et reprendra là où il s'est arrêté lors d'une relance.*
+**Crash test de reprise :** 
+1. Lancez la commande pour un gros échantillon (ex: `--sample 200`).
+2. Faites un `CTRL+C` au bout de 5 vérifications pour l'interrompre.
+3. Relancez la commande. Vous constaterez que le script reprend intelligemment là où il s'était arrêté, ignorant les numéros déjà validés.
 
-### 6. Rapport de réconciliation
-Générez l'état des lieux pour la direction financière :
+### Étape C : Générer le Rapport de Réconciliation
+Pour prouver à la direction financière l'état du référentiel et la réduction drastique du nombre d'appels réseau (grâce à la déduplication et à la validation structurelle).
 ```bash
 uv run python -m src.api_tva_meridian.report
 ```
 
-### 7. Démarrage de l'API
-Démarrez le serveur FastAPI :
+---
+
+## 🌐 3. Tester l'API REST (Temps Réel)
+
+L'API est destinée à être appelée par la facturation avant d'émettre une facture HT.
+
+**1. Démarrer le serveur API :**
 ```bash
 uv run uvicorn src.api_tva_meridian.main:app --host 0.0.0.0 --port 8000
 ```
-La documentation Swagger est accessible sur : `http://localhost:8000/docs`.
 
-Pour tester, depuis un autre terminal :
-```bash
-curl "http://localhost:8000/validate/FR/55423851084"
-```
+**2. Tests d'appels depuis un autre terminal (ou via le navigateur) :**
+
+- **Documentation Swagger / Interface de test UI :**  
+  👉 Ouvrez votre navigateur sur : [http://localhost:8000/docs](http://localhost:8000/docs)
+
+- **Test en ligne de commande (cURL) :**
+
+  *Cas 1 : Un numéro structurellement invalide (renvoie instantanément INVALIDE sans réseau)*
+  ```bash
+  curl "http://localhost:8000/validate/FR/55423851084"
+  ```
+
+  *Cas 2 : Un numéro valide en cache (fraîcheur locale)*
+  *(Si vous venez de lancer la campagne VIES, copiez un numéro valide dans les logs et testez-le)*
+  ```bash
+  curl "http://localhost:8000/validate/DK/47458714"
+  ```
+
+---
+
+## 📚 En Savoir Plus
+- 📖 [Lisez EXPLICATIONS_DETAILLES.md](./EXPLICATIONS_DETAILLES.md) pour comprendre comment fonctionnent la normalisation, la réduction d'appels et la gestion de VIES point par point.
+- 🏗️ Lisez `ARCHITECTURE.md` pour les décisions de conception.
+- 📓 Lisez `JOURNAL.md` pour le récit de la construction.
