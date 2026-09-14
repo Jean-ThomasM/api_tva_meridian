@@ -7,7 +7,17 @@ authors = [
     { name = "Jean-Thomas Miquelot", email = "miquelot.jeanthomas@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "pandas>=3.0.5",
+    "psycopg2-binary>=2.9.13",
+    "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.2.3",
+    "python-stdnum>=2.2",
+    "sqlalchemy>=2.0.52",
+    "uvicorn>=0.52.4",
+]
 
 [project.scripts]
 api-tva-meridian = "api_tva_meridian:main"
